@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Platform,
-  Alert
+  Alert,
+  ScrollView
 } from "react-native";
 import { useFonts } from "expo-font";
 import { useCallback } from "react";
@@ -24,6 +25,7 @@ import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { initializeApiKey, getApiKey } from '../utils/api-config';
+import * as FileSystem from 'expo-file-system';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -291,7 +293,7 @@ export default function SproutChat() {
     }
   };
   
-  // Speak the response
+  // Speak the response using Eleven Labs
   const speakResponse = async (text) => {
     try {
       setIsSpeaking(true);
@@ -299,25 +301,111 @@ export default function SproutChat() {
       // Animate Sprout while "speaking"
       animateSprout();
       
-      await Speech.speak(text, {
-        language: 'en',
-        pitch: 1.1,
-        rate: 0.9,
-        onDone: () => {
-          setIsSpeaking(false);
-          stopSproutAnimation();
+      // ElevenLabs API key
+      const elevenLabsApiKey = "sk_dd7bb279550c84c85ed18f1da2ae7e2073065f0c89743cb6";
+      // Voice ID for a youthful excited female voice (using Bella voice)
+      const voiceId = "EXAVITQu4vr4xnSDxMaL"; // Bella voice
+      
+      // Call Eleven Labs API
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'xi-api-key': elevenLabsApiKey,
         },
-        onError: (error) => {
-          console.error('Speech error:', error);
+        body: JSON.stringify({
+          text: text,
+          model_id: "eleven_monolingual_v1",
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.5, // More expressive
+            use_speaker_boost: true
+          }
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Eleven Labs API error: ${response.status}`);
+      }
+      
+      // Get audio data as blob
+      const audioBlob = await response.blob();
+      
+      // Convert blob to base64
+      const reader = new FileReader();
+      reader.readAsDataURL(audioBlob);
+      
+      reader.onloadend = async () => {
+        try {
+          // Extract base64 data (remove data URL prefix)
+          const base64Data = reader.result.split(',')[1];
+          
+          // Create a temporary file URI
+          const fileUri = `${FileSystem.cacheDirectory}temp_audio.mp3`;
+          
+          // Write the base64 data to a file
+          await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          // Play the audio file
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: fileUri },
+            { shouldPlay: true }
+          );
+          
+          // When audio finishes playing
+          sound.setOnPlaybackStatusUpdate(status => {
+            if (status.didJustFinish) {
+              setIsSpeaking(false);
+              stopSproutAnimation();
+              sound.unloadAsync();
+            }
+          });
+        } catch (error) {
+          console.error('Error playing audio:', error);
           setIsSpeaking(false);
           stopSproutAnimation();
         }
-      });
+      };
+      
+      reader.onerror = (error) => {
+        console.error('Error reading audio blob:', error);
+        setIsSpeaking(false);
+        stopSproutAnimation();
+        
+        // Fallback to regular speech if Eleven Labs fails
+        Speech.speak(text, {
+          language: 'en',
+          pitch: 1.1,
+          rate: 0.9,
+          onDone: () => {
+            setIsSpeaking(false);
+            stopSproutAnimation();
+          }
+        });
+      };
       
     } catch (error) {
-      console.error('Failed to speak:', error);
-      setIsSpeaking(false);
-      stopSproutAnimation();
+      console.error('Failed to speak with Eleven Labs:', error);
+      
+      // Fallback to regular speech if Eleven Labs fails
+      try {
+        await Speech.speak(text, {
+          language: 'en',
+          pitch: 1.1,
+          rate: 0.9,
+          onDone: () => {
+            setIsSpeaking(false);
+            stopSproutAnimation();
+          }
+        });
+      } catch (speechError) {
+        console.error('Speech fallback error:', speechError);
+        setIsSpeaking(false);
+        stopSproutAnimation();
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -418,6 +506,32 @@ export default function SproutChat() {
               </View>
             )}
           </View>
+          
+          {/* Conversation history */}
+          {messages.length > 0 && (
+            <View style={styles.conversationContainer}>
+              <ScrollView 
+                style={styles.messagesList}
+                contentContainerStyle={styles.messagesContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {messages.map((message, index) => (
+                  <View 
+                    key={index} 
+                    style={[
+                      styles.messageItem, 
+                      message.role === 'user' ? styles.userMessage : styles.assistantMessage
+                    ]}
+                  >
+                    <Text style={styles.messageRole}>
+                      {message.role === 'user' ? 'You' : 'Sprout'}
+                    </Text>
+                    <Text style={styles.messageText}>{message.content}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </SafeAreaView>
     </View>
@@ -454,8 +568,8 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    top: 40,
     padding: 20,
   },
   sproutContainer: {
@@ -481,7 +595,7 @@ const styles = StyleSheet.create({
   },
   speechBubble: {
     position: 'absolute',
-    top: '25%',
+    top: '35%',
     backgroundColor: 'white',
     borderRadius: 20,
     padding: 15,
@@ -539,5 +653,55 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: '#FF5252',
+  },
+  conversationContainer: {
+    position: 'absolute',
+    top: 250,
+    left: 20,
+    right: 20,
+    maxHeight: '60%',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 15,
+    padding: 10,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  messagesList: {
+    width: '100%',
+  },
+  messagesContent: {
+    paddingVertical: 5,
+  },
+  messageItem: {
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 8,
+    maxWidth: '90%',
+  },
+  userMessage: {
+    backgroundColor: '#E8F5E9',
+    alignSelf: 'flex-end',
+  },
+  assistantMessage: {
+    backgroundColor: '#F5F5F5',
+    alignSelf: 'flex-start',
+  },
+  messageRole: {
+    fontFamily: "PlusJakartaSans-SemiBold",
+    fontSize: 12,
+    color: "#2C5E1A",
+    marginBottom: 3,
+  },
+  messageText: {
+    fontFamily: "PlusJakartaSans-Regular",
+    fontSize: 14,
+    color: "#333333",
+    lineHeight: 20,
   },
 }); 

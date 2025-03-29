@@ -299,7 +299,7 @@ export default function Shop() {
             </Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/sprout")}>
+          <TouchableOpacity style={styles.navItem} onPress={() => router.push("/sprout-chat")}>
             <MaterialCommunityIcons 
               name="sprout" 
               size={24} 
