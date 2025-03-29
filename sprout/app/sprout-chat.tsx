@@ -11,7 +11,8 @@ import {
   SafeAreaView,
   Platform,
   Alert,
-  ScrollView
+  ScrollView,
+  Dimensions
 } from "react-native";
 import { useFonts } from "expo-font";
 import { useCallback } from "react";
@@ -29,6 +30,75 @@ import * as FileSystem from 'expo-file-system';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
+
+const { width, height } = Dimensions.get('window');
+
+const FloatingClouds = () => {
+  // Create multiple cloud animations with different speeds and positions
+  const clouds = [
+    { id: 1, startX: -100, startY: height * 0.1, speed: 0.08, scale: 0.6 },
+    { id: 2, startX: width, startY: height * 0.25, speed: 0.05, scale: 0.8 },
+    { id: 3, startX: -150, startY: height * 0.4, speed: 0.07, scale: 0.5 },
+    { id: 4, startX: width + 50, startY: height * 0.6, speed: 0.04, scale: 0.7 },
+    { id: 5, startX: -80, startY: height * 0.75, speed: 0.06, scale: 0.4 },
+  ];
+
+  // Create animated values for each cloud
+  const cloudAnimations = useRef(
+    clouds.map(() => new Animated.Value(0))
+  ).current;
+
+  // Start the animations when component mounts
+  useEffect(() => {
+    // Animate each cloud
+    clouds.forEach((cloud, index) => {
+      // Calculate animation duration based on screen width and cloud speed
+      const duration = (width + 200) / cloud.speed;
+      
+      // Create looping animation
+      Animated.loop(
+        Animated.timing(cloudAnimations[index], {
+          toValue: 1,
+          duration: duration,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        })
+      ).start();
+    });
+  }, []);
+
+  return (
+    <View style={styles.cloudsContainer}>
+      {clouds.map((cloud, index) => {
+        // Calculate the cloud's position based on animation value
+        const translateX = cloudAnimations[index].interpolate({
+          inputRange: [0, 1],
+          outputRange: [
+            cloud.startX < 0 ? cloud.startX : width, 
+            cloud.startX < 0 ? width : cloud.startX - width - 200
+          ],
+        });
+
+        return (
+          <Animated.Image
+            key={cloud.id}
+            source={require('../assets/images/cloud.png')}
+            style={[
+              styles.cloud,
+              {
+                transform: [
+                  { translateX },
+                  { translateY: cloud.startY },
+                  { scale: cloud.scale }
+                ],
+              },
+            ]}
+          />
+        );
+      })}
+    </View>
+  );
+};
 
 export default function SproutChat() {
   const [fontsLoaded, fontError] = useFonts({
@@ -264,7 +334,7 @@ export default function SproutChat() {
           messages: [
             {
               role: 'system',
-              content: 'You are Sprout, a compassionate and empathetic AI therapist. Your responses should be warm, supportive, and helpful. Use therapeutic techniques like validation, reflective listening, and gentle guidance. Avoid giving medical advice or diagnosing conditions. Focus on emotional support and coping strategies. Keep responses concise (2-3 sentences) but meaningful. Your goal is to help the user feel heard, understood, and supported in a safe space.'
+              content: 'You are Sprout, a compassionate and empathetic AI therapist. Your responses should be warm, supportive, and helpful. Use therapeutic techniques like validation, reflective listening, and gentle guidance. Avoid giving medical advice or diagnosing conditions. Focus on emotional support and coping strategies. Keep responses concise (2-3 sentences) but meaningful. Your goal is to help the user feel heard, understood, and supported in a safe space. Do not sound so robotic and sound like a human and be playful at appropriate times. have some character and be happy when happy, and understand when the user is sad. be a good listener and a great pal. remember be funny and authentically human.'
             },
             ...messages.slice(-4), // Include recent context
             { role: 'user', content: userMessage }
@@ -433,6 +503,7 @@ export default function SproutChat() {
   return (
     <View style={styles.rootContainer} onLayout={onLayoutRootView}>
       <SafeAreaView style={styles.safeArea}>
+        <FloatingClouds />
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.backButton}
@@ -541,7 +612,7 @@ export default function SproutChat() {
 const styles = StyleSheet.create({
   rootContainer: {
     flex: 1,
-    backgroundColor: "#E3F2FD", // Light sky blue background
+    backgroundColor: "#AEE7FE", // Light sky blue background
   },
   safeArea: {
     flex: 1,
@@ -703,5 +774,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#333333",
     lineHeight: 20,
+  },
+  cloudsContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: -1,
+  },
+  cloud: {
+    position: 'absolute',
+    width: 150,
+    height: 100,
+    resizeMode: 'contain',
+    opacity: 0.7,
   },
 }); 

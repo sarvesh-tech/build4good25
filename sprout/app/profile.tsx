@@ -52,6 +52,11 @@ export default function Profile() {
   // State for journal entries
   const [journalEntries, setJournalEntries] = useState([]);
   
+  // State for emotion insight
+  const [emotionInsight, setEmotionInsight] = useState(
+    "You've been reflecting on positive experiences often this month. Keep it up!"
+  );
+  
   // Load user data from AsyncStorage
   useEffect(() => {
     const loadUserData = async () => {
@@ -115,6 +120,136 @@ export default function Profile() {
     };
     
     loadJournalEntries();
+  }, []);
+  
+  // Load mood data from morning sessions
+  useEffect(() => {
+    const loadMoodData = async () => {
+      try {
+        // Initialize mood data structure
+        const combinedMoodData = {
+          happy: 0,
+          content: 0,
+          neutral: 0,
+          sad: 0,
+          stressed: 0
+        };
+        
+        let dataSourceCount = 0;
+        
+        // 1. Load morning session mood data
+        const morningSessionsJson = await AsyncStorage.getItem('morningSessions');
+        if (morningSessionsJson) {
+          const sessions = JSON.parse(morningSessionsJson);
+          
+          // Count occurrences of each mood
+          const moodCounts = {
+            happy: 0,
+            content: 0,
+            neutral: 0,
+            sad: 0,
+            stressed: 0
+          };
+          
+          sessions.forEach(session => {
+            if (session.mood === 'great') moodCounts.happy += 1;
+            else if (session.mood === 'good') moodCounts.content += 1;
+            else if (session.mood === 'okay') moodCounts.neutral += 1;
+            else if (session.mood === 'meh') moodCounts.sad += 1;
+            else if (session.mood === 'bad') moodCounts.stressed += 1;
+          });
+          
+          // Convert to percentages
+          const total = Object.values(moodCounts).reduce((sum, count) => sum + count, 0);
+          if (total > 0) {
+            Object.keys(moodCounts).forEach(mood => {
+              combinedMoodData[mood] += (moodCounts[mood] / total) * 100 * 0.5; // 50% weight
+            });
+            dataSourceCount++;
+          }
+        }
+        
+        // 2. Analyze chat logs for sentiment
+        const chatLogs = await AsyncStorage.getItem('chatMessages');
+        if (chatLogs) {
+          const messages = JSON.parse(chatLogs);
+          const userMessages = messages.filter(msg => msg.role === 'user');
+          
+          // Simple sentiment analysis based on keywords
+          const positiveWords = ['happy', 'good', 'great', 'better', 'positive', 'joy', 'excited'];
+          const negativeWords = ['sad', 'bad', 'stressed', 'anxious', 'worried', 'tired', 'upset'];
+          
+          let positiveCount = 0;
+          let negativeCount = 0;
+          let neutralCount = 0;
+          
+          userMessages.forEach(msg => {
+            const content = msg.content.toLowerCase();
+            let foundPositive = false;
+            let foundNegative = false;
+            
+            positiveWords.forEach(word => {
+              if (content.includes(word)) {
+                positiveCount++;
+                foundPositive = true;
+              }
+            });
+            
+            negativeWords.forEach(word => {
+              if (content.includes(word)) {
+                negativeCount++;
+                foundNegative = true;
+              }
+            });
+            
+            if (!foundPositive && !foundNegative) {
+              neutralCount++;
+            }
+          });
+          
+          const total = positiveCount + negativeCount + neutralCount;
+          if (total > 0) {
+            // Map sentiment to mood categories
+            combinedMoodData.happy += (positiveCount * 0.7 / total) * 100 * 0.3; // 30% weight
+            combinedMoodData.content += (positiveCount * 0.3 / total) * 100 * 0.3;
+            combinedMoodData.neutral += (neutralCount / total) * 100 * 0.3;
+            combinedMoodData.sad += (negativeCount * 0.6 / total) * 100 * 0.3;
+            combinedMoodData.stressed += (negativeCount * 0.4 / total) * 100 * 0.3;
+            dataSourceCount++;
+          }
+        }
+        
+        // 3. Analyze journal entries
+        const journalSentiment = await analyzeJournalSentiment();
+        if (journalSentiment) {
+          // Map sentiment to mood categories
+          combinedMoodData.happy += journalSentiment.positive * 70 * 0.2; // 20% weight
+          combinedMoodData.content += journalSentiment.positive * 30 * 0.2;
+          combinedMoodData.sad += journalSentiment.negative * 60 * 0.2;
+          combinedMoodData.stressed += journalSentiment.negative * 40 * 0.2;
+          combinedMoodData.neutral += (1 - journalSentiment.positive - journalSentiment.negative) * 100 * 0.2;
+          dataSourceCount++;
+        }
+        
+        // Normalize data if we have at least one data source
+        if (dataSourceCount > 0) {
+          // Ensure all values are between 0-100 and rounded
+          Object.keys(combinedMoodData).forEach(mood => {
+            combinedMoodData[mood] = Math.round(Math.min(100, Math.max(0, combinedMoodData[mood])));
+          });
+          
+          setMoodData(combinedMoodData);
+          
+          // Generate mood insight based on the combined data
+          const insight = analyzeMoodData(combinedMoodData);
+          setEmotionInsight(insight);
+        }
+      } catch (error) {
+        console.error('Error loading mood data:', error);
+      }
+    };
+    
+    loadMoodData();
   }, []);
   
   // Calculate streak based on check-in dates
@@ -439,6 +574,103 @@ export default function Profile() {
     </TouchableOpacity>
   );
   
+  // Add this function to analyze mood data and generate insights
+  const analyzeMoodData = (moodData) => {
+    // Find the most frequent mood
+    const moodEntries = Object.entries(moodData);
+    const sortedMoods = [...moodEntries].sort((a, b) => b[1] - a[1]);
+    const dominantMood = sortedMoods[0][0];
+    
+    // Generate insight based on dominant mood
+    if (dominantMood === 'happy' || dominantMood === 'content') {
+      return "You've been feeling positive lately. Keep nurturing these good feelings!";
+    } else if (dominantMood === 'neutral') {
+      return "Your mood has been balanced recently. Consider activities that bring you joy.";
+    } else {
+      return "You've been experiencing some challenging emotions. Remember to practice self-care.";
+    }
+  };
+
+  // Add this function to analyze chat logs and generate insights
+  const analyzeChatLogs = async () => {
+    try {
+      const chatLogs = await AsyncStorage.getItem('chatMessages');
+      if (!chatLogs) return "Start chatting with Sprout to get personalized insights!";
+      
+      const messages = JSON.parse(chatLogs);
+      
+      // Simple sentiment analysis based on keywords
+      const positiveWords = ['happy', 'good', 'great', 'better', 'positive', 'joy', 'excited'];
+      const negativeWords = ['sad', 'bad', 'stressed', 'anxious', 'worried', 'tired', 'upset'];
+      
+      let positiveCount = 0;
+      let negativeCount = 0;
+      
+      // Only analyze user messages
+      const userMessages = messages.filter(msg => msg.role === 'user');
+      
+      userMessages.forEach(msg => {
+        const content = msg.content.toLowerCase();
+        positiveWords.forEach(word => {
+          if (content.includes(word)) positiveCount++;
+        });
+        negativeWords.forEach(word => {
+          if (content.includes(word)) negativeCount++;
+        });
+      });
+      
+      if (positiveCount > negativeCount) {
+        return "You've been reflecting on positive experiences often. Keep it up!";
+      } else if (negativeCount > positiveCount) {
+        return "You've been sharing some challenges lately. Remember that growth often comes from difficult times.";
+      } else {
+        return "Your conversations show a balanced perspective on life's ups and downs.";
+      }
+    } catch (error) {
+      console.error('Error analyzing chat logs:', error);
+      return "Chat with Sprout to get personalized insights!";
+    }
+  };
+
+  // Add this function to analyze journal entries for sentiment
+  const analyzeJournalSentiment = async () => {
+    try {
+      const entriesJson = await AsyncStorage.getItem('journalEntries');
+      if (!entriesJson) return null;
+      
+      const entries = JSON.parse(entriesJson);
+      
+      // Simple sentiment analysis based on keywords
+      const positiveWords = ['happy', 'good', 'great', 'better', 'positive', 'joy', 'excited', 'grateful', 'thankful', 'love'];
+      const negativeWords = ['sad', 'bad', 'stressed', 'anxious', 'worried', 'tired', 'upset', 'angry', 'frustrated', 'fear'];
+      
+      let positiveCount = 0;
+      let negativeCount = 0;
+      
+      entries.forEach(entry => {
+        const content = entry.text.toLowerCase();
+        positiveWords.forEach(word => {
+          if (content.includes(word)) positiveCount++;
+        });
+        negativeWords.forEach(word => {
+          if (content.includes(word)) negativeCount++;
+        });
+      });
+      
+      // Calculate sentiment score between -1 and 1
+      const total = positiveCount + negativeCount;
+      if (total === 0) return null;
+      
+      return {
+        positive: positiveCount / total,
+        negative: negativeCount / total
+      };
+    } catch (error) {
+      console.error('Error analyzing journal sentiment:', error);
+      return null;
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView 
@@ -458,14 +690,17 @@ export default function Profile() {
           {/* Profile Stats */}
           <View style={styles.profileStats}>
             <View style={styles.statCard}>
+              <FontAwesome5 name="calendar-check" size={24} color="#2C5E1A" style={styles.statIcon} />
               <Text style={styles.statNumber}>{userData.checkIns}</Text>
               <Text style={styles.statLabel}>Check-ins</Text>
             </View>
             <View style={styles.statCard}>
+              <FontAwesome5 name="fire" size={24} color="#FF9800" style={styles.statIcon} />
               <Text style={styles.statNumber}>{userData.streak}</Text>
               <Text style={styles.statLabel}>Day Streak</Text>
             </View>
             <View style={styles.statCard}>
+              <FontAwesome5 name="lightbulb" size={24} color="#8BC34A" style={styles.statIcon} />
               <Text style={styles.statNumber}>{userData.insights.length}</Text>
               <Text style={styles.statLabel}>Insights</Text>
             </View>
@@ -542,7 +777,7 @@ export default function Profile() {
             </View>
             
             <Text style={styles.emotionInsight}>
-              You've been reflecting on positive experiences often this month. Keep it up!
+              {emotionInsight}
             </Text>
           </View>
           
@@ -661,6 +896,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666666",
     marginTop: 5,
+  },
+  statIcon: {
+    marginBottom: 8,
   },
   sectionContainer: {
     backgroundColor: "white",

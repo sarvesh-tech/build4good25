@@ -53,7 +53,7 @@ export default function Dashboard() {
       title: 'Start off your day with a morning session',
       duration: '1 min',
       coins: 3,
-      image: require('../assets/images/head.png'),
+      image: require('../assets/images/morning.png'),
       completed: false,
       route: '/morning-session'
     },
@@ -62,7 +62,7 @@ export default function Dashboard() {
       title: "Let's journal a lil' bit to start the day",
       duration: '3   min',
       coins: 5,
-      image: require('../assets/images/head.png'),
+      image: require('../assets/images/notebook.png'),
       completed: false,
       route: '/journal-session'
     }
