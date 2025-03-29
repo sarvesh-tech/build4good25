@@ -65,8 +65,11 @@ export default function Welcome() {
   
   // Handle continue button press
   const handleContinue = () => {
-    // Navigate to next question or dashboard
-    // router.push("/next-question");
+    // Navigate to the survey
+    router.push({
+      pathname: "/survey",
+      params: { name: userName }
+    });
   };
 
   if (isLoading) {
